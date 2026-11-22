@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Карта: самолёт и бегун</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{display:flex;flex-direction:column;font:15px/1.35 "Segoe UI",system-ui,sans-serif;color:#14212b;background:#eef2f3}
+#bar{padding:8px;background:#fff;border-bottom:1px solid #cfd8dc;display:grid;gap:6px;grid-template-columns:1fr 1fr;z-index:1000}
+#bar .row{grid-column:1/-1;display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+input[type=text]{width:100%;padding:9px 10px;border:1px solid #b8c4ca;border-radius:9px;font:inherit}
+button{padding:9px 12px;border:1px solid #0a7d8c;background:#0a7d8c;color:#fff;border-radius:9px;font:inherit;font-weight:600}
+button.alt{background:#fff;color:#0a7d8c}
+button.on{background:#14212b;border-color:#14212b;color:#fff}
+label{display:flex;align-items:center;gap:5px;color:#5d6b76}
+#map{flex:1;min-height:0}
+#st{padding:6px 10px;background:#fff;border-top:1px solid #cfd8dc;color:#5d6b76;min-height:32px}
+.pin{width:28px;height:28px;border-radius:50%;color:#fff;font-weight:700;display:grid;place-items:center;border:2px solid #fff;box-shadow:0 1px 5px rgba(0,0,0,.5)}
+.pin.A{background:#2e9e5b}.pin.B{background:#d64545}
+.rot{transition:none;transform-origin:50% 50%}
+.run{font-size:30px;line-height:34px;text-align:center;filter:drop-shadow(0 2px 2px rgba(0,0,0,.5))}
+@keyframes bob{50%{transform:translateY(-4px)}}
+.run span{display:inline-block;animation:bob .35s infinite}
+</style></head><body>
+<div id="bar">
+<input type="text" id="qa" placeholder="Откуда: любой город или адрес" enterkeyhint="search">
+<input type="text" id="qb" placeholder="Куда: любой город или адрес" enterkeyhint="search">
+<div class="row">
+<button id="mAir" class="on">✈️ Самолёт</button><button id="mRun" class="alt">🏃 Бегун</button>
+<button id="go">Старт</button><button id="clr" class="alt">Сброс</button>
+<label>Скорость <input type="range" id="sp" min="0.3" max="4" step="0.1" value="1"></label>
+<label><input type="checkbox" id="fol">Следить</label>
+</div></div>
+<div id="map"></div>
+<div id="st">Введите города или коснитесь карты: сначала точка А, потом Б.</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+const $=s=>document.querySelector(s),D=Math.PI/180;
+const map=L.map("map",{zoomControl:false}).setView([48,20],4);
+const osm=L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:"© OpenStreetMap"}).addTo(map);
+const topo=L.tileLayer("https://tile.opentopomap.org/{z}/{x}/{y}.png",{maxZoom:17,attribution:"© OpenTopoMap, © OpenStreetMap"});
+const sat=L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",{maxZoom:19,attribution:"Esri"});
+L.control.layers({"Карта":osm,"Рельеф":topo,"Спутник":sat},null,{position:"topright"}).addTo(map);
+L.control.zoom({position:"bottomleft"}).addTo(map);
+
+let mode="air",P={A:null,B:null},mk={},layers=[],anim=null,speed=1;
+const say=t=>$("#st").innerHTML=t;
+$("#sp").oninput=e=>speed=+e.target.value;
+function setMode(m){mode=m;$("#mAir").className=m=="air"?"on":"alt";$("#mRun").className=m=="run"?"on":"alt";$("#fol").checked=m=="run"}
+$("#mAir").onclick=()=>setMode("air");$("#mRun").onclick=()=>setMode("run");
+
+function pin(k,ll){if(mk[k])map.removeLayer(mk[k]);
+ mk[k]=L.marker(ll,{icon:L.divIcon({className:"",html:`<div class="pin ${k}">${k=="A"?"А":"Б"}</div>`,iconSize:[28,28],iconAnchor:[14,14]})}).addTo(map)}
+function setPoint(k,ll,label){P[k]=ll;pin(k,ll);if(label)$(k=="A"?"#qa":"#qb").value=label;stop()}
+async function geocode(q){
+ const r=await fetch("https://nominatim.openstreetmap.org/search?format=json&limit=1&accept-language=ru&q="+encodeURIComponent(q));
+ const j=await r.json();return j[0]?{ll:L.latLng(+j[0].lat,+j[0].lon),name:j[0].display_name.split(",").slice(0,2).join(",")}:null}
+async function search(k){const q=$(k=="A"?"#qa":"#qb").value.trim();if(!q)return;
+ say("Ищу «"+q+"»…");try{const g=await geocode(q);
+  if(!g){say("Место «"+q+"» не найдено. Попробуйте уточнить название.");return}
+  setPoint(k,g.ll,g.name);const b=L.latLngBounds([P.A||g.ll,P.B||g.ll]);
+  P.A&&P.B?map.fitBounds(b.pad(.3)):map.setView(g.ll,10);say("Точка "+(k=="A"?"А":"Б")+": "+g.name)}
+ catch(e){say("Не удалось выполнить поиск. Проверьте интернет.")}}
+["A","B"].forEach(k=>$(k=="A"?"#qa":"#qb").addEventListener("keydown",e=>{if(e.key=="Enter"){e.target.blur();search(k)}}));
+map.on("click",e=>{if(!P.A||(P.A&&P.B)){P.B=null;if(mk.B){map.removeLayer(mk.B);mk.B=null}$("#qb").value="";setPoint("A",e.latlng,"точка на карте");say("Точка А стоит. Теперь выберите Б.")}
+ else{setPoint("B",e.latlng,"точка на карте");say("Готово, нажмите «Старт».")}});
+$("#clr").onclick=()=>{stop();P={A:null,B:null};Object.values(mk).forEach(m=>map.removeLayer(m));mk={};$("#qa").value=$("#qb").value="";say("Сброшено.")};
+
+function stop(){if(anim){cancelAnimationFrame(anim.raf);anim=null}layers.forEach(l=>map.removeLayer(l));layers=[]}
+
+/* большой круг: самолёт */
+function greatCircle(a,b,n=240){
+ const v=p=>[Math.cos(p.lat*D)*Math.cos(p.lng*D),Math.cos(p.lat*D)*Math.sin(p.lng*D),Math.sin(p.lat*D)],A=v(a),B=v(b);
+ const om=Math.acos(Math.min(1,Math.max(-1,A[0]*B[0]+A[1]*B[1]+A[2]*B[2])))||1e-6,out=[];let prev=a.lng;
+ for(let i=0;i<=n;i++){const t=i/n,k1=Math.sin((1-t)*om)/Math.sin(om),k2=Math.sin(t*om)/Math.sin(om),x=[0,1,2].map(j=>k1*A[j]+k2*B[j]);
+  let lo=Math.atan2(x[1],x[0])/D;while(lo-prev>180)lo-=360;while(lo-prev<-180)lo+=360;prev=lo;out.push(L.latLng(Math.asin(x[2])/D,lo))}
+ return out}
+async function footRoute(a,b){
+ for(const prof of["foot","driving"]){try{
+  const r=await fetch(`https://routing.openstreetmap.de/routed-foot/route/v1/${prof}/${a.lng},${a.lat};${b.lng},${b.lat}?overview=full&geometries=geojson`);
+  const j=await r.json();if(j.routes&&j.routes[0])return j.routes[0].geometry.coordinates.map(c=>L.latLng(c[1],c[0]))}catch(e){}}
+ return null}
+const bearing=(a,b)=>{const p1=a.lat*D,p2=b.lat*D,dl=(b.lng-a.lng)*D;return Math.atan2(Math.sin(dl)*Math.cos(p2),Math.cos(p1)*Math.sin(p2)-Math.sin(p1)*Math.cos(p2)*Math.cos(dl))/D};
+
+const PLANE='<svg viewBox="0 0 24 24" width="40" height="40"><path d="M12 1.5l2.2 7.3 8 4.2v2.3l-8-2.2-.9 5 3 2.2v2l-4.3-1.1-4.3 1.1v-2l3-2.2-.9-5-8 2.2v-2.3l8-4.2z" fill="#fff" stroke="#0a3550" stroke-width="1.1"/></svg>';
+
+$("#go").onclick=async()=>{
+ if(!P.A||!P.B){say("Сначала задайте точки А и Б.");return}
+ stop();let pts;
+ if(mode=="air"){pts=greatCircle(P.A,P.B)}
+ else{say("Строю маршрут по дорогам и тропам…");pts=await footRoute(P.A,P.B);
+  if(!pts){pts=[P.A,P.B];say("Сервер маршрутов не ответил, бегу по прямой.")}}
+ const cum=[0];for(let i=1;i<pts.length;i++)cum.push(cum[i-1]+pts[i-1].distanceTo(pts[i]));
+ const total=cum[cum.length-1],km=total/1000;
+ const dur=mode=="air"?Math.min(28,Math.max(7,km/350)):Math.min(70,Math.max(10,km*9));
+ const ghost=L.polyline(pts,{color:"#fff",weight:4,opacity:.7,dashArray:"6 8"}).addTo(map);
+ const trail=L.polyline([pts[0]],{color:mode=="air"?"#f2994a":"#e4572e",weight:5}).addTo(map);
+ const html=mode=="air"?`<div class="rot">${PLANE}</div>`:`<div class="run"><span>🏃</span></div>`;
+ const m=L.marker(pts[0],{icon:L.divIcon({className:"",html,iconSize:[40,40],iconAnchor:[20,20]}),zIndexOffset:1000}).addTo(map);
+ layers=[ghost,trail,m];
+ map.fitBounds(L.latLngBounds(pts).pad(.2));
+ if($("#fol").checked)map.setView(pts[0],mode=="air"?5:16,{animate:false});
+ const real=mode=="air"?km/850:km/5;
+ const A={d:0,i:0,last:performance.now()};anim=A;
+ const frame=now=>{const dt=Math.min(.05,(now-A.last)/1000);A.last=now;
+  A.d=Math.min(total,A.d+dt*speed*total/dur);
+  while(A.i<pts.length-2&&cum[A.i+1]<A.d)A.i++;
+  const i=A.i,seg=cum[i+1]-cum[i]||1,f=Math.min(1,(A.d-cum[i])/seg),a=pts[i],b=pts[i+1],
+   ll=L.latLng(a.lat+(b.lat-a.lat)*f,a.lng+(b.lng-a.lng)*f);
+  m.setLatLng(ll);trail.setLatLngs(pts.slice(0,i+1).concat([ll]));
+  const br=bearing(a,b),el=m.getElement();
+  if(el){if(mode=="air")el.querySelector(".rot").style.transform=`rotate(${br}deg)`;else el.querySelector(".run").style.transform=`scaleX(${br>0?-1:1})`}
+  if($("#fol").checked)map.panTo(ll,{animate:false});
+  const left=Math.round((1-A.d/total)*100);
+  say(`${mode=="air"?"✈️":"🏃"} <b>${(A.d/1000).toFixed(1)}</b> из ${km.toFixed(1)} км · в реальности ≈ ${real<1?Math.round(real*60)+" мин":real.toFixed(1)+" ч"}`);
+  if(A.d<total)A.raf=requestAnimationFrame(frame);else say(`Финиш! ${km.toFixed(1)} км пройдено. В реальности это ≈ ${real<1?Math.round(real*60)+" мин":real.toFixed(1)+" ч"}.`)};
+ A.raf=requestAnimationFrame(frame)};
+</script></body></html>
